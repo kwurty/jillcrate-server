@@ -110,6 +110,7 @@ io.on("connection", (socket) => {
 
     socket.on("updateGameSettings", (roomCode, gameSettings) => {
         state[roomCode] = gameSettings;
+        io.in(roomCode).emit("returnGameSettings", gameSettings);
     })
 
     socket.on("viewGameSettings", (room) => {
