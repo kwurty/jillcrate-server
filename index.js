@@ -45,18 +45,26 @@ function handleJoinGame(roomName) {
     // startGameInterval(roomName);
 }
 
+function startGame(gameSettings) {
+    let players = gameSettings.PLAYERS.map((player, pos) => {
+        return {
+            id: player.id,
+            name: player.name,
+            lives: gameSettings.MAX_LIVES,
+            position: pos
+        }
+    })
+}
+
 io.on("connection", (socket) => {
     console.log(socket.id);
 
     socket.on("joinRoom", (room, name) => {
         // console.dir(io.sockets);
-        console.log('joining...');
         try {
             // Check if the room exists
             const r = io.sockets.adapter.rooms;
             if (r.has(room)) {
-
-
                 // Gather the user count in the room and compare
                 let users = Array.from(r.get(room));
                 let gameSettings = JSON.parse(state[room]);
@@ -69,6 +77,7 @@ io.on("connection", (socket) => {
                     } else {
 
                         // else join the room
+                        console.log("joining")
                         socket.join(room);
                         gameSettings.PLAYERS.push(
                             {
@@ -94,11 +103,17 @@ io.on("connection", (socket) => {
         }
     })
 
-    socket.on("generateRoom", () => {
+    socket.on("generateRoom", (username) => {
         try {
             const roomCode = createRoomCode(5);
             const gameSettings = generateGameSettings();
-            socket.emit('returnRoomCode', roomCode);
+            gameSettings.PLAYERS.push(
+                {
+                    id: socket.id,
+                    name: username
+                }
+            );
+            socket.emit('returnRoomCode', roomCode, JSON.stringify(gameSettings));
             socket.emit('returnGameSettings', JSON.stringify(gameSettings));
             socket.join(roomCode);
             state[roomCode] = gameSettings;
@@ -117,8 +132,8 @@ io.on("connection", (socket) => {
         socket.emit("viewGameSettings", state[room]);
     })
 
-    socket.on("startGame", () => {
-
+    socket.on("startGame", (roomCode) => {
+        startGame(state[roomCode]);
     })
 
 })
