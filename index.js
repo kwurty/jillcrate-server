@@ -1,8 +1,7 @@
 const { instrument } = require('@socket.io/admin-ui');
 const { createServer } = require("http");
-const { generateGame } = require('./game');
 const { createRoomCode } = require('./utilities');
-const { generateGameSettings } = require('./game')
+const { generateGameSettings, generateGame } = require('./game')
 
 const state = {};
 const socketRooms = {};
@@ -46,14 +45,7 @@ function handleJoinGame(roomName) {
 }
 
 function startGame(gameSettings) {
-    let players = gameSettings.PLAYERS.map((player, pos) => {
-        return {
-            id: player.id,
-            name: player.name,
-            lives: gameSettings.MAX_LIVES,
-            position: pos
-        }
-    })
+    generateGame(gameSettings);
 }
 
 io.on("connection", (socket) => {
@@ -82,7 +74,8 @@ io.on("connection", (socket) => {
                         gameSettings.PLAYERS.push(
                             {
                                 id: socket.id,
-                                name: name
+                                name: name,
+                                host: false
                             }
                         );
                         state[room] = gameSettings;
@@ -110,11 +103,11 @@ io.on("connection", (socket) => {
             gameSettings.PLAYERS.push(
                 {
                     id: socket.id,
-                    name: username
+                    name: username,
+                    host: true
                 }
             );
             socket.emit('returnRoomCode', roomCode, JSON.stringify(gameSettings));
-            socket.emit('returnGameSettings', JSON.stringify(gameSettings));
             socket.join(roomCode);
             state[roomCode] = gameSettings;
             socketRooms[socket.id] = roomCode;

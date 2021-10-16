@@ -1,5 +1,6 @@
 module.exports = {
     generateGameSettings,
+    generateGame
 }
 
 function generateGameSettings() {
@@ -12,4 +13,21 @@ function generateGameSettings() {
         MAX_LIVES: 3,
         STATUS: 0,
     }
+}
+
+function generateGame(gameSettings) {
+    let GAME = {
+        ...JSON.parse(gameSettings),
+        CURRENT_PLAYER: 0,
+        LAST_ANSWER_FIRSTNAME_LETTER: '',
+        LAST_ANSWER_LASTNAME_LETTER: '',
+        DIRECTION: 1
+    }
+
+    GAME.PLAYERS = GAME.PLAYERS.map((player) => ({
+        ...player,
+        LIVES: GAME.MAX_LIVES
+    }))
+
+    console.dir(GAME);
 }
