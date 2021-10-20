@@ -48,6 +48,8 @@ function startGame(gameSettings) {
     generateGame(gameSettings);
 }
 
+
+
 io.on("connection", (socket) => {
     console.log(socket.id);
 
@@ -107,10 +109,10 @@ io.on("connection", (socket) => {
                     host: true
                 }
             );
-            socket.emit('returnRoomCode', roomCode, JSON.stringify(gameSettings));
             socket.join(roomCode);
             state[roomCode] = gameSettings;
             socketRooms[socket.id] = roomCode;
+            socket.emit('returnRoomCode', roomCode, gameSettings);
         } catch (e) {
             console.log(`[${socket.id}] - error generating room`)
         }
@@ -121,8 +123,8 @@ io.on("connection", (socket) => {
         io.in(roomCode).emit("returnGameSettings", gameSettings);
     })
 
-    socket.on("viewGameSettings", (room) => {
-        socket.emit("viewGameSettings", state[room]);
+    socket.on("getGameSettings", (room) => {
+        socket.emit("returnGameSettings", state[room]);
     })
 
     socket.on("startGame", (roomCode) => {
