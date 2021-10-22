@@ -61,7 +61,7 @@ io.on("connection", (socket) => {
             if (r.has(room)) {
                 // Gather the user count in the room and compare
                 let users = Array.from(r.get(room));
-                let gameSettings = JSON.parse(state[room]);
+                let gameSettings = state[room];
 
                 if (users.length > 0) {
                     // If full
@@ -81,8 +81,8 @@ io.on("connection", (socket) => {
                             }
                         );
                         state[room] = gameSettings;
-                        socket.emit("returnJoinedRoom");
-                        io.in(room).emit("returnGameSettings", JSON.stringify(gameSettings))
+                        socket.emit("returnJoinedRoom", gameSettings);
+                        io.in(room).emit("returnGameSettings", gameSettings)
                     }
                 }
 
@@ -94,7 +94,8 @@ io.on("connection", (socket) => {
 
         }
         catch (e) {
-            console.log(`[${socket.id}] - failed to join room ${room}`)
+            console.log(`[${socket.id}] - failed to join room ${room}`);
+            console.log(e);
         }
     })
 
