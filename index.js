@@ -14,148 +14,132 @@ const io = require('socket.io')(httpServer, {
         origin: ['http://localhost:3000', "https://admin.socket.io"]
     }
 });
-function generateGameSettings() {
-    return {
-        PLAYERS: [],
-        MAX_PLAYERS: 6,
-        ANSWER_TIMER: 10,
-        GAME_MODE: 'lives',
-        GAME_TYPES: ['lives', 'unlimited'],
-        MAX_LIVES: 3,
-        STATUS: 0,
-        CURRENT_PLAYER: null,
-        LAST_ANSWER_LASTNAME_LETTER: null,
-        DIRECTION: null,
-        TIME_LEFT: null,
-        TIMER: null,
-        WINNER: null,
-        DIRECTION: null,
-        START_TIMER: function () {
-            // set interval on timer
-            this.TIMER = setInterval(() => {
-                // check the timer
-                if (this.TIME_LEFT === 0) {
-                    this.PLAYERS[this.CURRENT_PLAYER]['lives'] = this.PLAYERS[this.CURRENT_PLAYER]['lives'] - 1;
-                    this.TIMER = this.ANSWER_TIMER;
-                    this.SET_CURRENT_PLAYER();
-                } else {
-                    this.TIME_LEFT = this.TIME_LEFT - 1;
-                }
-            }, 1000)
-        },
-        STOP_TIMER: function () {
-            clearInterval(this.TIMER);
-            this.TIMER = null;
-        },
-        START_GAME: function () {
-            if (this.TIMER !== null) return
 
-            // set random starting player
-            this.CURRENT_PLAYER = Math.floor(Math.random() * (this.PLAYERS.length));
-            // set time left
-            this.TIME_LEFT = this.ANSWER_TIMER;
+class Game {
+    constructor(roomCode = null) {
+        this.ROOM = roomCode;
+        this.PLAYERS = [];
+        this.MAX_PLAYERS = 6;
+        this.ANSWER_TIMER = 10;
+        this.GAME_MODE = 'lives';
+        this.GAME_TYPES = ['lives', 'unlimited'];
+        this.MAX_LIVES = 3;
+        this.STATUS = 0;
+        this.CURRENT_PLAYER = null;
+        this.LAST_ANSWER_LASTNAME_LETTER = null;
+        this.DIRECTION = 1;
+        this.TIME_LEFT = null;
+        this.TIMER = null;
+        this.WINNER = null;
+    }
 
-            // set players lives if game mode is lives
-            if (this.GAME_MODE === 'lives') {
-                this.PLAYERS = this.PLAYERS(function (player) {
-                    return {
-                        ...player,
-                        lives: this.MAX_LIVES
-                    };
-                });
+    START_COUNTDOWN() {
+        this.TIMER = setInterval(() => {
+            if (this.STATUS !== 0) return
+
+            if (this.TIME_LEFT <= 0) {
+                clearInterval(this.TIMER);
+                this.STATUS = 2;
+                this.START_TIMER();
+            } else {
+                this.TIME_LEFT = this.TIME_LEFT - 1;
+            }
+            io.in(this.ROOM).emit("countdown", this.TIME_LEFT);
+        }, 1000)
+    }
+
+    START_TIMER() {
+        this.TIMER = setInterval(() => {
+            // game is not in a live state
+            if (this.status !== 2) {
+                clearInterval(this.TIMER);
+                return
+            }
+            // check the timer
+            if (this.TIME_LEFT <= 0) {
+                this.PLAYERS[this.CURRENT_PLAYER]['lives'] = this.PLAYERS[this.CURRENT_PLAYER]['lives'] - 1;
+                this.TIMER = this.ANSWER_TIMER;
+                this.SET_CURRENT_PLAYER();
+                this.TIME_LEFT = this.ANSWER_TIMER;
+            } else {
+                this.TIME_LEFT = this.TIME_LEFT - 1;
             }
 
-            this.STATUS = 1;
-        },
-        CHECK_ANSWER: function (answer) {
-            let nameArray = split(' ');
-            let firstName = nameArray[0];
-            let lastName = nameArray[nameArray.length - 1];
+            io.in(this.ROOM).emit("countdown", this.TIME_LEFT);
+        }, 1000);
+    }
 
-            // check for the user
-            axios.get('/')
+    STOP_TIMER() {
+        clearInterval(this.TIMER);
+        this.TIMER = null;
+    }
 
-        },
-        SET_CURRENT_PLAYER: function () {
+    START_GAME() {
+        if (this.TIMER !== null) return
+        // set random starting player
+        // this.CURRENT_PLAYER = Math.floor(Math.random() * (this.PLAYERS.length));
+        this.CURRENT_PLAYER = 0;
+        // set time left
+        this.TIME_LEFT = this.ANSWER_TIMER;
 
-            // continuous mode
-            if (this.GAME_MODE === 'lives') {
-                if (this.DIRECTION > 0 && this.CURRENT_PLAYER + this.DIRECTION > this.PLAYERS.length - 1) {
-                    this.CURRENT_PLAYER = 0;
-                } else if (this.DIRECTION < 0 && this.CURRENT_PLAYER + this.DIRECTION < 0) {
-                    this.CURRENT_PLAYER = this.PLAYERS.length - 1;
-                } else {
-                    this.CURRENT_PLAYER = this.CURRENT_PLAYER + this.DIRECTION;
-                }
-            }
-            // lives mode
-            else {
-                // set temporary next player
-                let nextplayer = this.CURRENT_PLAYER
+        let lives = this.MAX_LIVES;
+        // set players lives if game mode is lives
+        if (this.GAME_MODE === 'lives') {
+            this.PLAYERS = this.PLAYERS.map((player) => {
+                return {
+                    ...player,
+                    lives
+                };
+            });
+        }
+        this.STATUS = 1;
+        this.START_TIMER();
+    }
 
-                do {
-                    // if adding the direction makes it go under 0, revert to last person in queue
-                    if (this.CURRENT_PLAYER + this.DIRECTION < 0) {
-                        nextplayer = this.PLAYERS.length - 1;
-                    }
-                    // if the direction makes it go over the max length, revert it to first person in queue
-                    else if (this.CURRENT_PLAYER + this.DIRECTION > this.PLAYERS.length - 1) {
-                        nextplayer = 0;
-                    }
-                    // otherwise just add the direction
-                    else {
-                        nextplayer += this.DIRECTION;
-                    }
-                }
-                // if the player does not have any lives left, check the next person
-                while (this.PLAYERS[nextplayer]['lives'] < 1)
-
-                // set the current player
-                this.CURRENT_PLAYER = nextplayer;
-
+    SET_CURRENT_PLAYER() {
+        // continuous mode
+        if (this.GAME_MODE === 'lives') {
+            if (this.DIRECTION > 0 && this.CURRENT_PLAYER + this.DIRECTION > this.PLAYERS.length - 1) {
+                this.CURRENT_PLAYER = 0;
+            } else if (this.DIRECTION < 0 && this.CURRENT_PLAYER + this.DIRECTION < 0) {
+                this.CURRENT_PLAYER = this.PLAYERS.length - 1;
+            } else {
+                this.CURRENT_PLAYER = this.CURRENT_PLAYER + this.DIRECTION;
             }
         }
+        // lives mode
+        else {
+            // set temporary next player
+            if (this.PLAYERS[this.CURRENT_PLAYER + this.DIRECTION]) {
+                let nextplayer = this.CURRENT_PLAYER + this.DIRECTION;
+                while (this.nextplayer) {
+                    if (this.PLAYERS[nextplayer]) {
+
+                        break;
+                    }
+                }
+            }
+            // set the current player
+            this.CURRENT_PLAYER = nextplayer;
+        }
+    }
+
+    CHECK_PLAYERS() {
+        let alivePlayers = []
+        this.PLAYERS.forEach((player, index) => {
+            if (player.lives > 0) {
+                alivePlayers.push(index)
+            }
+        })
+
+        //return winner
+        if (alivePlayers.length === 1) {
+            this.WINNER = this.PLAYERS[alivePlayers[0]];
+            this.STATUS = 3;
+        }
+        return alivePlayers;
     }
 }
-
-function returnMessage() {
-
-}
-
-
-// TODO: Remove I think
-function handleJoinGame(roomName) {
-    const room = io.sockets.adapter.rooms[roomName];
-
-    let allUsers;
-    if (room) {
-        allUsers = room.sockets;
-    }
-
-    let numClients = 0;
-    if (allUsers) {
-        numClients = Object.keys(allUsers).length;
-    }
-
-    if (numClients === 0) {
-        console.log('unknownCode');
-        return;
-    } else if (numClients > 1) {
-        console.log('tooManyPlayers');
-        return;
-    }
-
-    clientRooms[client.id] = roomName;
-
-    client.join(roomName);
-    client.number = 2;
-    client.emit('init', 2);
-
-    // startGameInterval(roomName);
-}
-
-
-
 
 io.on("connection", (socket) => {
     console.log(`${socket.id} has connected`)
@@ -194,9 +178,6 @@ io.on("connection", (socket) => {
             } else {
                 // probably return here because the room doesn't exist?
             }
-
-
-
         }
         catch (e) {
             console.log(`[${socket.id}] - failed to join room ${room}`);
@@ -207,7 +188,7 @@ io.on("connection", (socket) => {
     socket.on("generateRoom", (username) => {
         try {
             const roomCode = createRoomCode(5);
-            const gameSettings = generateGameSettings();
+            const gameSettings = new Game(roomCode);
             gameSettings.PLAYERS.push(
                 {
                     id: socket.id,
@@ -234,8 +215,8 @@ io.on("connection", (socket) => {
     });
 
     socket.on("startGame", (roomCode) => {
-        state[roomCode].START_GAME();
-        io.in(roomCode).emit("returnGameSettings", gameSettings);
+        state[roomCode]['START_COUNTDOWN']();
+        // io.in(roomCode).emit("returnGameSettings", game);
     });
 
     socket.on("submitAnswer", (roomCode, answer) => {
@@ -245,8 +226,6 @@ io.on("connection", (socket) => {
     socket.on("disconnect", (socket) => {
         console.log(`user disconnected - ${socket}`)
     });
-
-
 })
 
 
