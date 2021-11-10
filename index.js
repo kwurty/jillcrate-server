@@ -34,29 +34,37 @@ class Game {
     }
 
     START_COUNTDOWN() {
+        console.log("starting countdown")
+        this.TIME_LEFT = 4;
         this.TIMER = setInterval(() => {
             if (this.STATUS !== 0) return
 
-            if (this.TIME_LEFT <= 0) {
+            if (this.TIME_LEFT === 0) {
+                console.log('clearing');
                 clearInterval(this.TIMER);
+                this.TIMER = null;
                 this.STATUS = 2;
-                this.START_TIMER();
+                this.TIME_LEFT = this.ANSWER_TIMER;
+                this.START_GAME();
             } else {
                 this.TIME_LEFT = this.TIME_LEFT - 1;
+                io.in(this.ROOM).emit("countdown", this.TIME_LEFT);
             }
-            io.in(this.ROOM).emit("countdown", this.TIME_LEFT);
         }, 1000)
     }
 
     START_TIMER() {
+        console.log('executing main timer');
         this.TIMER = setInterval(() => {
             // game is not in a live state
-            if (this.status !== 2) {
+            if (this.STATUS !== 2) {
                 clearInterval(this.TIMER);
                 return
             }
             // check the timer
             if (this.TIME_LEFT <= 0) {
+                console.log(this.PLAYERS);
+                console.log(this.PLAYERS[this.CURRENT_PLAYER]);
                 this.PLAYERS[this.CURRENT_PLAYER]['lives'] = this.PLAYERS[this.CURRENT_PLAYER]['lives'] - 1;
                 this.TIMER = this.ANSWER_TIMER;
                 this.SET_CURRENT_PLAYER();
@@ -77,7 +85,7 @@ class Game {
     START_GAME() {
         if (this.TIMER !== null) return
         // set random starting player
-        // this.CURRENT_PLAYER = Math.floor(Math.random() * (this.PLAYERS.length));
+        // this.CURRENT_PLAYER = Math.floor(Math.random() * (this.PLAYERS.length - 1));
         this.CURRENT_PLAYER = 0;
         // set time left
         this.TIME_LEFT = this.ANSWER_TIMER;
@@ -92,7 +100,7 @@ class Game {
                 };
             });
         }
-        this.STATUS = 1;
+        this.STATUS = 2;
         this.START_TIMER();
     }
 
@@ -110,17 +118,23 @@ class Game {
         // lives mode
         else {
             // set temporary next player
-            if (this.PLAYERS[this.CURRENT_PLAYER + this.DIRECTION]) {
-                let nextplayer = this.CURRENT_PLAYER + this.DIRECTION;
-                while (this.nextplayer) {
-                    if (this.PLAYERS[nextplayer]) {
+            let alivePlayers = this.CHECK_PLAYERS();
+            let nextPlayer = alivePlayers.indexOf(this.CURRENT_PLAYER);
 
-                        break;
-                    }
+            // if there is an alive next player, select that person
+            if (alivePlayers[nextPlayer + this.DIRECTION]) {
+                nextPlayer = this.CURRENT_PLAYER + this.DIRECTION;
+            }
+            // else, if there the direction does not have a person in it, loop back the array
+            else if (alivePlayers[nextPlayer + this.DIRECTION] === undefined) {
+                if (this.DIRECTION > 0) {
+                    nextPlayer = alivePlayers[0]
+                } else {
+                    nextPlayer = alivePlayers[alivePlayers.length - 1]
                 }
             }
             // set the current player
-            this.CURRENT_PLAYER = nextplayer;
+            this.CURRENT_PLAYER = nextPlayer;
         }
     }
 
