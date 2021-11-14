@@ -1,6 +1,8 @@
 const { instrument } = require('@socket.io/admin-ui');
 const { createServer } = require("http");
 const { createRoomCode } = require('./utilities');
+require('dotenv').config();
+const mysql = require('mysql');
 
 const axios = require('axios');
 
@@ -15,6 +17,18 @@ const io = require('socket.io')(httpServer, {
     }
 });
 
+const db = mysql.createConnection({
+    host: process.env.DB_HOST,
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    database: 'namegame'
+});
+
+db.connect((err) => {
+    if (err) throw err;
+
+})
+
 class Game {
     constructor(roomCode = null) {
         this.ROOM = roomCode;
@@ -24,9 +38,14 @@ class Game {
         this.GAME_MODE = 'lives';
         this.GAME_TYPES = ['lives', 'unlimited'];
         this.MAX_LIVES = 3;
+        // STATUS 0 = PREGAME
+        // STATUS 1 = COUNTDOWN
+        // STATUS 2 = IN GAME
+        // STATUS 3 = GAME OVER
         this.STATUS = 0;
         this.CURRENT_PLAYER = null;
         this.LAST_ANSWER_LASTNAME_LETTER = null;
+        this.LAST_ANSWER = null;
         this.DIRECTION = 1;
         this.TIME_LEFT = null;
         this.TIMER = null;
@@ -53,8 +72,16 @@ class Game {
         }, 1000)
     }
 
+    CHECK_ANSWER(answer) {
+        let splitAnswer = answer.split(' ');
+        // first letter is correct
+        if (splitAnswer[0][0] === this.LAST_ANSWER_LASTNAME_LETTER) {
+            this.LAST_ANSWER_LASTNAME_LETTER = splitAnswer[splitAnswer.length - 1][0];
+            this.LAST_ANSWER = `${splitAnswer[0]} ${splitAnswer[splitAnswer.length - 1]}`
+        }
+    }
+
     START_TIMER() {
-        console.log('executing main timer');
         this.TIMER = setInterval(() => {
             // game is not in a live state
             if (this.STATUS !== 2) {
@@ -63,23 +90,27 @@ class Game {
             }
             // check the timer
             if (this.TIME_LEFT <= 0) {
-                console.log(this.PLAYERS);
-                console.log(this.PLAYERS[this.CURRENT_PLAYER]);
                 this.PLAYERS[this.CURRENT_PLAYER]['lives'] = this.PLAYERS[this.CURRENT_PLAYER]['lives'] - 1;
-                this.TIMER = this.ANSWER_TIMER;
                 this.SET_CURRENT_PLAYER();
-                this.TIME_LEFT = this.ANSWER_TIMER;
+                this.RESET_TIMER();
             } else {
                 this.TIME_LEFT = this.TIME_LEFT - 1;
             }
 
             io.in(this.ROOM).emit("countdown", this.TIME_LEFT);
+
+            io.in(this.ROOM).emit("returnGameSettings", state[this.ROOM]);
         }, 1000);
     }
 
     STOP_TIMER() {
         clearInterval(this.TIMER);
         this.TIMER = null;
+    }
+    RESET_TIMER() {
+        clearInterval(this.TIMER);
+        this.TIMER = this.ANSWER_TIMER;
+        this.TIME_LEFT = this.ANSWER_TIMER;
     }
 
     START_GAME() {
@@ -106,7 +137,7 @@ class Game {
 
     SET_CURRENT_PLAYER() {
         // continuous mode
-        if (this.GAME_MODE === 'lives') {
+        if (this.GAME_MODE === 'unlimited') {
             if (this.DIRECTION > 0 && this.CURRENT_PLAYER + this.DIRECTION > this.PLAYERS.length - 1) {
                 this.CURRENT_PLAYER = 0;
             } else if (this.DIRECTION < 0 && this.CURRENT_PLAYER + this.DIRECTION < 0) {
@@ -114,44 +145,54 @@ class Game {
             } else {
                 this.CURRENT_PLAYER = this.CURRENT_PLAYER + this.DIRECTION;
             }
+            this.RESET_TIMER();
         }
         // lives mode
         else {
             // set temporary next player
-            let alivePlayers = this.CHECK_PLAYERS();
-            let nextPlayer = alivePlayers.indexOf(this.CURRENT_PLAYER);
+            let alivePlayers = this.CHECK_ALIVE_PLAYERS();
 
-            // if there is an alive next player, select that person
-            if (alivePlayers[nextPlayer + this.DIRECTION]) {
-                nextPlayer = this.CURRENT_PLAYER + this.DIRECTION;
-            }
-            // else, if there the direction does not have a person in it, loop back the array
-            else if (alivePlayers[nextPlayer + this.DIRECTION] === undefined) {
-                if (this.DIRECTION > 0) {
-                    nextPlayer = alivePlayers[0]
-                } else {
-                    nextPlayer = alivePlayers[alivePlayers.length - 1]
+            //return winner if only one player left
+            if (this.CHECK_FOR_WINNER(alivePlayers)) {
+                this.WINNER = alivePlayers[0];
+                this.STATUS = 3;
+                this.STOP_TIMER();
+                this.TIMER = null;
+                io.in(this.ROOM).emit("gameover", this.WINNER);
+            } else {
+                let nextPlayer = alivePlayers.indexOf(this.CURRENT_PLAYER);
+
+                // if there is an alive next player, select that person
+                if (alivePlayers[nextPlayer + this.DIRECTION]) {
+                    nextPlayer = this.CURRENT_PLAYER + this.DIRECTION;
                 }
+                // else, if there the direction does not have a person in it, loop back the array
+                else if (alivePlayers[nextPlayer + this.DIRECTION] === undefined) {
+                    if (this.DIRECTION > 0) {
+                        nextPlayer = alivePlayers[0]
+                    } else {
+                        nextPlayer = alivePlayers[alivePlayers.length - 1]
+                    }
+                }
+                // set the current player
+                this.CURRENT_PLAYER = nextPlayer;
+                this.RESET_TIMER();
             }
-            // set the current player
-            this.CURRENT_PLAYER = nextPlayer;
         }
     }
 
-    CHECK_PLAYERS() {
+    CHECK_ALIVE_PLAYERS() {
         let alivePlayers = []
         this.PLAYERS.forEach((player, index) => {
             if (player.lives > 0) {
                 alivePlayers.push(index)
             }
         })
-
-        //return winner
-        if (alivePlayers.length === 1) {
-            this.WINNER = this.PLAYERS[alivePlayers[0]];
-            this.STATUS = 3;
-        }
         return alivePlayers;
+    }
+
+    CHECK_FOR_WINNER(alivePlayers) {
+        return alivePlayers.length === 1 ? true : false;
     }
 }
 
@@ -185,7 +226,7 @@ io.on("connection", (socket) => {
                         );
                         state[room] = gameSettings;
                         socket.emit("returnJoinedRoom", gameSettings);
-                        io.in(room).emit("returnGameSettings", gameSettings)
+                        io.in(room).emit("returnGameSettings", gameSettings);
                     }
                 }
 
@@ -219,9 +260,9 @@ io.on("connection", (socket) => {
         }
     });
 
-    socket.on("updateGameSettings", (roomCode, gameSettings) => {
-        state[roomCode] = gameSettings;
-        io.in(roomCode).emit("returnGameSettings", gameSettings);
+    socket.on("updateGameSettings", (roomCode, key, value) => {
+        state[roomCode][key] = value
+        io.in(roomCode).emit("returnGameSettings", state[roomCode]);
     });
 
     socket.on("getGameSettings", (room) => {
@@ -234,7 +275,9 @@ io.on("connection", (socket) => {
     });
 
     socket.on("submitAnswer", (roomCode, answer) => {
-        state[roomCode].CHECK_ANSWER(answer);
+        db.query(`SELECT * FROM famouspeople WHERE firstname = ${answer}`).then((res) => {
+            console.log(res)
+        })
     })
 
     socket.on("disconnect", (socket) => {
