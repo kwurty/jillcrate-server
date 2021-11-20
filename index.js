@@ -5,6 +5,7 @@ require('dotenv').config();
 const mysql = require('mysql');
 
 const axios = require('axios');
+const { NULL } = require('mysql/lib/protocol/constants/types');
 
 const state = {};
 const socketRooms = {};
@@ -92,6 +93,8 @@ class Game {
             }
             // check the timer
             if (this.TIME_LEFT <= 0) {
+
+                this.STOP_TIMER();
                 this.DOCK_PLAYER();
                 this.SET_CURRENT_PLAYER();
                 this.RESET_TIMER();
@@ -147,45 +150,38 @@ class Game {
             } else {
                 this.CURRENT_PLAYER = this.CURRENT_PLAYER + this.DIRECTION;
             }
-            this.RESET_TIMER();
         }
         // lives mode
         else {
             // set temporary next player
             try {
                 let alivePlayers = this.CHECK_ALIVE_PLAYERS();
-                this.TIME_LEFT = this.ANSWER_TIMER + 1;
-                console.log(alivePlayers)
-                //return winner if only one player left
-                if (alivePlayers.length === 1) {
-                    console.log("winner selected")
-                    this.WINNER = alivePlayers[0];
-                    this.STATUS = 3;
-                    this.STOP_TIMER();
-                    this.TIMER = null;
-                    io.in(this.ROOM).emit("gameover", this.WINNER);
-                } else {
-                    let nextPlayer = alivePlayers.indexOf(this.CURRENT_PLAYER);
 
-                    console.log(nextPlayer)
-                    // if there is an alive next player, select that person
-                    if (alivePlayers[nextPlayer + this.DIRECTION]) {
-                        nextPlayer = this.CURRENT_PLAYER + this.DIRECTION;
-                    }
-                    // else, if there the direction does not have a person in it, loop back the array
-                    else if (!alivePlayers[nextPlayer + this.DIRECTION]) {
-                        console.log("Loop alive array")
-                        console.log(alivePlayers, this.DIRECTION);
-                    }
-                    // set the current player
-                    this.CURRENT_PLAYER = nextPlayer;
-                    this.RESET_TIMER();
+                if (this.CHECK_FOR_WINNER(alivePlayers)) return;
+                // if there is another player before or after available, set to that player
+
+                if (!this.PLAYERS[this.CURRENT_PLAYER] + this.DIRECTION) {
+                    return this.CURRENT_PLAYER = this.CURRENT_PLAYER + this.DIRECTION
                 }
+
+                // if it is at the end or beginning of the array, send to the other end.
+                this.DIRECTION > 0 ? this.CURRENT_PLAYER = 0 : this.CURRENT_PLAYER = this.PLAYERS.length - 1;
+
             }
             catch (err) {
                 console.log(err)
             }
         }
+    }
+
+    CHECK_FOR_WINNER(players) {
+        if (players.length > 1) return false
+
+        let winner = this.PLAYERS[players[0]];
+
+        io.in(this.ROOM).emit("gameover", winner);
+
+        return true;
     }
 
     CHECK_ALIVE_PLAYERS() {
