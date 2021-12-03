@@ -240,7 +240,8 @@ io.on("connection", (socket) => {
     socket.on("joinRoom", (room, name) => {
         try {
             // Check if the room exists
-
+            const r = io.sockets.adapter.rooms;
+            console.log(r);
             if (!state[room]) return socket.emit("returnFailedRoomJoin", "Room does not exist");
 
             // Gather the user count in the room and compare
@@ -249,7 +250,7 @@ io.on("connection", (socket) => {
 
             if (users.length > 0) {
                 // If full
-                if (users.length > gameSettings.MAX_PLAYERS) {
+                if (users.length >= gameSettings.MAX_PLAYERS) {
                     socket.emit("returnFailedJoinRoom", "Room is full.")
                     console.log('Room is full');
                     //  emit room is full message
