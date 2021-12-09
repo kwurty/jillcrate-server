@@ -69,12 +69,17 @@ class Game {
         }
         this.TIMER = setInterval(() => {
             if (this.STATUS !== 1) return
+            if (this.PLAYERS.length < 2) {
+                this.STOP_TIMER();
+                this.STATUS = 0;
+            }
 
             if (this.TIME_LEFT === 0) {
                 clearInterval(this.TIMER);
                 this.TIMER = null;
                 this.STATUS = 2;
                 this.TIME_LEFT = this.ANSWER_TIMER;
+                this.RETURN_GAMESETTINGS();
                 this.START_GAME();
             } else {
                 this.TIME_LEFT = this.TIME_LEFT - 1;
@@ -135,7 +140,7 @@ class Game {
         this.STATUS = 2;
         this.RETURN_GAMESETTINGS();
         // set random starting player
-        // this.CURRENT_PLAYER = Math.floor(Math.random() * (this.PLAYERS.length - 1));
+        this.CURRENT_PLAYER = Math.floor(Math.random() * (this.PLAYERS.length - 1));
         this.CURRENT_PLAYER = 0;
         // set time left
         this.START_TIMER();
@@ -166,10 +171,13 @@ class Game {
 
                 // grab the next player
                 if (this.DIRECTION > 0 && !alivePlayers[ind + 1]) {
+                    console.log('next player reset to beginning of alive players array')
                     nextPlayer = alivePlayers[0];
                 } else if (this.DIRECTION < 0 && !alivePlayers[ind - 1]) {
+                    console.log('next player set to end of array')
                     nextPlayer = alivePlayers[alivePlayers.length - 1]
                 } else {
+                    console.log('next player set to alive players index + direction')
                     nextPlayer = alivePlayers[ind + this.DIRECTION]
                 }
 
@@ -186,15 +194,17 @@ class Game {
         }
     }
 
+    GAMEOVER(winner) {
+        this.STATUS = 3;
+        io.in(this.ROOM).emit("gameover", winner);
+        this.STOP_TIMER();
+    }
+
     CHECK_FOR_WINNER(players) {
         if (players.length > 1) return false
 
         let winner = this.PLAYERS[players[0]];
-
-        io.in(this.ROOM).emit("gameover", winner);
-
-        clearInterval(this.TIMER);
-        this.TIMER = null;
+        this.GAMEOVER(winner);
 
         return true;
     }
@@ -236,12 +246,14 @@ class Game {
 }
 
 io.on("connection", (socket) => {
-    console.log(`${socket.id} has connected`)
+
+    const USER = socket.id;
+    let ROOM = undefined;
+
     socket.on("joinRoom", (room, name) => {
         try {
             // Check if the room exists
             const r = io.sockets.adapter.rooms;
-            console.log(r);
             if (!state[room]) return socket.emit("returnFailedRoomJoin", "Room does not exist");
 
             // Gather the user count in the room and compare
@@ -251,14 +263,17 @@ io.on("connection", (socket) => {
             if (users.length > 0) {
                 // If full
                 if (users.length >= gameSettings.MAX_PLAYERS) {
-                    socket.emit("returnFailedJoinRoom", "Room is full.")
-                    console.log('Room is full');
                     //  emit room is full message
+                    socket.emit("returnFailedJoinRoom", "Room is full.")
                 } else {
 
                     // else join the room
-                    console.log("joining")
                     socket.join(room);
+
+                    // set user's room variable
+                    ROOM = room;
+
+                    // add user to PLAYERS list
                     gameSettings.PLAYERS.push(
                         {
                             id: socket.id,
@@ -266,8 +281,11 @@ io.on("connection", (socket) => {
                             host: false
                         }
                     );
+                    // update the room settings
                     state[room] = gameSettings;
-                    socket.emit("returnJoinedRoom");
+
+                    // tell users in the room of new player
+                    socket.emit("returnJoinedRoom", room, name);
                     io.in(room).emit("returnGameSettings", gameSettings);
                 }
             }
@@ -286,7 +304,7 @@ io.on("connection", (socket) => {
             const gameSettings = new Game(roomCode);
             gameSettings.PLAYERS.push(
                 {
-                    id: socket.id,
+                    id: USER,
                     name: username,
                     host: true
                 }
@@ -294,7 +312,8 @@ io.on("connection", (socket) => {
             socket.join(roomCode);
             state[roomCode] = gameSettings;
             socketRooms[socket.id] = roomCode;
-            socket.emit('returnRoomCode', roomCode, gameSettings);
+            ROOM = roomCode;
+            socket.emit('returnRoomCode', roomCode, username, gameSettings);
         } catch (e) {
             console.log(`[${socket.id}] - error generating room`)
         }
@@ -357,8 +376,19 @@ io.on("connection", (socket) => {
 
     })
 
-    socket.on("disconnect", (socket) => {
-        console.log(`user disconnected - ${socket}`)
+    socket.on("disconnect", () => {
+        if (!ROOM) return
+
+        // get the room they are in and remove them from the players group
+        let gameSettings = state[ROOM];
+        const newUsers = gameSettings.PLAYERS.filter(player => {
+            return player.id !== USER;
+        })
+        gameSettings.PLAYERS = newUsers;
+        state[ROOM] = gameSettings;
+
+        // emit to users in the room the updated players list
+        // io.in(ROOM).emit("returnGameSettings", state[ROOM]);
     });
 })
 
