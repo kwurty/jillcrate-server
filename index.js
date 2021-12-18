@@ -82,8 +82,8 @@ class Game {
                 this.RETURN_GAMESETTINGS();
                 this.START_GAME();
             } else {
+                io.in(this.ROOM).emit("pregameCountdown", this.TIME_LEFT);
                 this.TIME_LEFT = this.TIME_LEFT - 1;
-                io.in(this.ROOM).emit("countdown", this.TIME_LEFT);
             }
         }, 1000)
     }
@@ -97,8 +97,8 @@ class Game {
         this.PLAYERS[this.CURRENT_PLAYER]['lives'] = this.PLAYERS[this.CURRENT_PLAYER]['lives'] - 1;
     }
 
-    SEND_CORRECT() {
-        io.in(this.ROOM).emit("correctAnswer", this.CURRENT_PLAYER);
+    SEND_CORRECT(firstname, lastname) {
+        io.in(this.ROOM).emit("correctAnswer", this.CURRENT_PLAYER, firstname, lastname);
     }
 
     SEND_INCORRECT(message = null) {
@@ -117,6 +117,7 @@ class Game {
             if (this.TIME_LEFT <= 0) {
                 this.SEND_INCORRECT();
                 this.SET_CURRENT_PLAYER(true);
+                io.in(this.ROOM).emit("timeover");
                 this.TIME_LEFT = this.ANSWER_TIMER;
             } else {
                 this.TIME_LEFT = this.TIME_LEFT - 1;
@@ -170,15 +171,14 @@ class Game {
                 let nextPlayer = null;
 
                 // grab the next player
-                if (this.DIRECTION > 0 && !alivePlayers[ind + 1]) {
-                    console.log('next player reset to beginning of alive players array')
-                    nextPlayer = alivePlayers[0];
-                } else if (this.DIRECTION < 0 && !alivePlayers[ind - 1]) {
-                    console.log('next player set to end of array')
-                    nextPlayer = alivePlayers[alivePlayers.length - 1]
-                } else {
-                    console.log('next player set to alive players index + direction')
+                if (Number.isInteger(alivePlayers[ind + this.DIRECTION])) {
                     nextPlayer = alivePlayers[ind + this.DIRECTION]
+                } else {
+                    if (this.DIRECTION > 0) {
+                        nextPlayer = alivePlayers[0]
+                    } else {
+                        nextPlayer = alivePlayers[alivePlayers.length - 1]
+                    }
                 }
 
                 // if this was triggered by a timeout, damage the player
@@ -294,7 +294,6 @@ io.on("connection", (socket) => {
         }
         catch (e) {
             console.log(`[${socket.id}] - failed to join room ${room}`);
-            console.log(e);
         }
     });
 
@@ -343,14 +342,13 @@ io.on("connection", (socket) => {
             firstname = fullname[0].toUpperCase(),
             lastname = fullname[fullname.length - 1].toUpperCase();
 
-        console.log(firstname, lastname);
         // initial null set
         if (state[roomCode]['LAST_ANSWER_LASTNAME_LETTER'] === null) {
             state[roomCode]['LAST_ANSWER_LASTNAME_LETTER'] = lastname[0];
             state[roomCode]['LAST_ANSWER'] = `${firstname} ${lastname}`;
             state[roomCode]['PREVIOUS_ANSWERS'].push(firstname + lastname);
             state[roomCode]['RESET_TIMER']();
-            state[roomCode]['SEND_CORRECT']();
+            state[roomCode]['SEND_CORRECT'](firstname, lastname);
             state[roomCode]['SET_CURRENT_PLAYER']();
             return;
         }
@@ -371,7 +369,7 @@ io.on("connection", (socket) => {
         state[roomCode]['LAST_ANSWER_LASTNAME_LETTER'] = lastname[0];
         state[roomCode]['LAST_ANSWER'] = `${firstname} ${lastname}`;
         state[roomCode]['RESET_TIMER']();
-        state[roomCode]['SEND_CORRECT']();
+        state[roomCode]['SEND_CORRECT'](firstname, lastname);
         state[roomCode]['SET_CURRENT_PLAYER']();
 
     })
