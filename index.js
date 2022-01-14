@@ -18,17 +18,12 @@ const io = require('socket.io')(httpServer, {
     }
 });
 
-// const db = mysql.createConnection({
-//     host: process.env.DB_HOST,
-//     user: process.env.DB_USER,
-//     password: process.env.DB_PASSWORD,
-//     database: 'namegame'
-// });
-
-// db.connect((err) => {
-//     if (err) throw err;
-
-// })
+const pool = mysql.createPool({
+    host: process.env.DB_HOST,
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    database: 'namegame'
+});
 
 class Game {
     constructor(roomCode = null) {
@@ -89,7 +84,8 @@ class Game {
     }
 
     CHECK_ANSWER(firstname, lastname) {
-        if (firstname[0].toUpperCase() !== this.LAST_ANSWER_LASTNAME_LETTER.toUpperCase()) return
+        if (firstname[0].toUpperCase() !== this.LAST_ANSWER_LASTNAME_LETTER.toUpperCase()) return false
+        if (this.PREVIOUS_ANSWERS.includes(`${firstname}${lastname}`)) return false
         return true
     }
 
@@ -139,10 +135,21 @@ class Game {
         if (this.TIMER !== null) return
         this.TIME_LEFT = this.ANSWER_TIMER;
         this.STATUS = 2;
-        this.RETURN_GAMESETTINGS();
         // set random starting player
         this.CURRENT_PLAYER = Math.floor(Math.random() * (this.PLAYERS.length - 1));
         this.CURRENT_PLAYER = 0;
+
+        // set random first answer
+
+        pool.query('SELECT firstname, lastname FROM famouspeople ORDER BY RAND() LIMIT 1', (err, res) => {
+            this.LAST_ANSWER = `${res[0].firstname} ${res[0].lastname}`
+            this.LAST_ANSWER_LASTNAME_LETTER = res[0].lastname[0];
+            this.PREVIOUS_ANSWERS.push(`${res[0].firstname}${res[0].lastname}`);
+            io.in(this.ROOM).emit("correctAnswer", 0, res[0].firstname, res[0].lastname);
+        })
+
+
+        this.RETURN_GAMESETTINGS();
         // set time left
         this.START_TIMER();
     }
@@ -338,39 +345,38 @@ io.on("connection", (socket) => {
         // make sure the correct player is submitting!
         if (state[roomCode].PLAYERS[state[roomCode].CURRENT_PLAYER].id !== socket.id) return;
 
-        let fullname = answer.split(' '),
-            firstname = fullname[0].toUpperCase(),
-            lastname = fullname[fullname.length - 1].toUpperCase();
+        let fullname = answer.split(' ');
+        let firstname = fullname[0].toUpperCase();
+        let lastname = fullname[fullname.length - 1].toUpperCase();
 
-        // initial null set
-        if (state[roomCode]['LAST_ANSWER_LASTNAME_LETTER'] === null) {
+
+        //check to make sure the answer checks all the marks
+
+        if (!firstname || !lastname) {
+            return state[roomCode]['SEND_INCORRECT']();
+        }
+
+        if (!state[roomCode]['CHECK_ANSWER'](firstname, lastname)) {
+            return state[roomCode]['SEND_INCORRECT']();
+        }
+
+        // check to make sure it's actually a famous person then make adjustments
+        pool.query(`SELECT * FROM famouspeople WHERE firstname="${firstname}" and lastname="${lastname}"`, (err, results, fields) => {
+            if (results.length < 1) {
+                return state[roomCode]['SEND_INCORRECT']();
+            }
+
+            if (lastname[0] === firstname[0]) {
+                state[roomCode]['SWAP_DIRECTION']();
+            }
+            // set the LAST_ANSWER_LASTNAME_LETTER and LAST_ANSWER to correct answer
+            state[roomCode]['PREVIOUS_ANSWERS'].push(firstname + lastname);
             state[roomCode]['LAST_ANSWER_LASTNAME_LETTER'] = lastname[0];
             state[roomCode]['LAST_ANSWER'] = `${firstname} ${lastname}`;
-            state[roomCode]['PREVIOUS_ANSWERS'].push(firstname + lastname);
             state[roomCode]['RESET_TIMER']();
             state[roomCode]['SEND_CORRECT'](firstname, lastname);
             state[roomCode]['SET_CURRENT_PLAYER']();
-            return;
-        }
-
-        // check for answer here. 
-        // If letter doesn't match or if the answer was used already, return
-        if (!state[roomCode].CHECK_ANSWER(firstname, lastname) || state[roomCode]['PREVIOUS_ANSWERS'].includes(firstname + lastname)) {
-            state[roomCode]['SEND_INCORRECT']();
-            return;
-        }
-        // if matching, swap the direction
-        if (lastname[0] === firstname[0]) {
-            state[roomCode]['SWAP_DIRECTION']();
-        }
-
-        // set the LAST_ANSWER_LASTNAME_LETTER and LAST_ANSWER to correct answer
-        state[roomCode]['PREVIOUS_ANSWERS'].push(firstname + lastname);
-        state[roomCode]['LAST_ANSWER_LASTNAME_LETTER'] = lastname[0];
-        state[roomCode]['LAST_ANSWER'] = `${firstname} ${lastname}`;
-        state[roomCode]['RESET_TIMER']();
-        state[roomCode]['SEND_CORRECT'](firstname, lastname);
-        state[roomCode]['SET_CURRENT_PLAYER']();
+        })
 
     })
 
