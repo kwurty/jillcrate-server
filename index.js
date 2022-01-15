@@ -14,7 +14,7 @@ const httpServer = createServer();
 
 const io = require('socket.io')(httpServer, {
     cors: {
-        origin: ['http://localhost:3000', "https://admin.socket.io", "https://itsthenamegame.herokuapp.com/"]
+        origin: ['http://localhost:3000', "https://admin.socket.io", "https://itsthenamegame.herokuapp.com/", "https://kwurty.github.io/jillcrate-client/"]
     }
 });
 
@@ -400,3 +400,5 @@ io.on("connection", (socket) => {
 instrument(io, { auth: false });
 
 httpServer.listen(process.env.PORT || 3000);
+
+console.log(`Listening on ${process.env.PORT}`);
