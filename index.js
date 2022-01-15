@@ -14,7 +14,7 @@ const httpServer = createServer();
 
 const io = require('socket.io')(httpServer, {
     cors: {
-        origin: ['http://localhost:3000', "https://admin.socket.io"]
+        origin: ['http://localhost:3000', "https://admin.socket.io", "https://itsthenamegame.herokuapp.com/"]
     }
 });
 
@@ -399,4 +399,4 @@ io.on("connection", (socket) => {
 
 instrument(io, { auth: false });
 
-httpServer.listen(5000);
+httpServer.listen(process.env.PORT || 3000);
