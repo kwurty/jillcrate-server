@@ -22,7 +22,7 @@ const pool = mysql.createPool({
     host: process.env.DB_HOST,
     user: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
-    database: 'namegame'
+    database: 'jillcrate'
 });
 
 class Game {
@@ -141,11 +141,12 @@ class Game {
 
         // set random first answer
 
-        pool.query('SELECT firstname, lastname FROM famouspeople ORDER BY RAND() LIMIT 1', (err, res) => {
-            this.LAST_ANSWER = `${res[0].firstname} ${res[0].lastname}`
-            this.LAST_ANSWER_LASTNAME_LETTER = res[0].lastname[0];
-            this.PREVIOUS_ANSWERS.push(`${res[0].firstname}${res[0].lastname}`);
-            io.in(this.ROOM).emit("correctAnswer", 0, res[0].firstname, res[0].lastname);
+        pool.query('SELECT first_name, last_name FROM jillcrate.nndb ORDER BY RAND() LIMIT 1', (err, res) => {
+            console.log(res);
+            this.LAST_ANSWER = `${res[0].first_name} ${res[0].last_name}`
+            this.LAST_ANSWER_LASTNAME_LETTER = res[0].last_name[0];
+            this.PREVIOUS_ANSWERS.push(`${res[0].first_name}${res[0].last_name}`);
+            io.in(this.ROOM).emit("correctAnswer", 0, res[0].first_name, res[0].last_name);
         })
 
 
@@ -361,7 +362,7 @@ io.on("connection", (socket) => {
         }
 
         // check to make sure it's actually a famous person then make adjustments
-        pool.query(`SELECT * FROM famouspeople WHERE firstname="${firstname}" and lastname="${lastname}"`, (err, results, fields) => {
+        pool.query(`SELECT * FROM jillcrate.nndb WHERE first_name="${firstname}" and last_name="${lastname}"`, (err, results, fields) => {
             if (results.length < 1) {
                 return state[roomCode]['SEND_INCORRECT']();
             }
