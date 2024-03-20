@@ -14,7 +14,7 @@ const httpServer = createServer();
 
 const io = require('socket.io')(httpServer, {
     cors: {
-        origin: ['http://localhost:3000', 'http://namegame.kwurty.com', 'https://namegame.kwurty.com', 'https://kwurty.github.io', "https://admin.socket.io", "https://itsthenamegame.herokuapp.com/", "https://kwurty.github.io/jillcrate-client/"]
+        origin: ['http://localhost:5173', 'http://namegame.kwurty.com', 'https://namegame.kwurty.com', 'https://kwurty.github.io', "https://admin.socket.io", "https://itsthenamegame.herokuapp.com/", "https://kwurty.github.io/jillcrate-client/"]
     }
 });
 
