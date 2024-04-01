@@ -40,7 +40,7 @@ class Game {
         // STATUS 3 = GAME OVER
         this.PREVIOUS_ANSWERS = [];
         this.STATUS = 0;
-        this.CURRENT_PLAYER = null;
+        this.CURRENT_PLAYER = 0;
         this.LAST_ANSWER_LASTNAME_LETTER = null;
         this.LAST_ANSWER = null;
         this.DIRECTION = 1;
@@ -142,7 +142,10 @@ class Game {
         // set random first answer
 
         pool.query('SELECT first_name, last_name FROM jillcrate.nndb ORDER BY RAND() LIMIT 1', (err, res) => {
-            console.log(res);
+            if(!res || !res[0] || !res[0].first_name || !res[0].last_name) {
+                io.in(this.ROOM).emit("correctAnswer", 0, "Fred", "Durst");
+                return
+            }
             this.LAST_ANSWER = `${res[0].first_name} ${res[0].last_name}`
             this.LAST_ANSWER_LASTNAME_LETTER = res[0].last_name[0];
             this.PREVIOUS_ANSWERS.push(`${res[0].first_name}${res[0].last_name}`);
@@ -327,8 +330,31 @@ io.on("connection", (socket) => {
     });
 
     socket.on("updateGameSettings", (roomCode, key, value) => {
-        state[roomCode][key] = value
-        io.in(roomCode).emit("returnGameSettings", state[roomCode]);
+        if(state[roomCode] && state[roomCode][key]) {
+
+            if(key === "MAX_PLAYERS"){
+                if(value > 10){
+                    socket.emit('hostError', `Playes are limited to 10.`);
+                    return;
+                } else if (value < 2){
+                    socket.emit('hostError', `Must have at least 2 players`);
+                    return;
+                }
+            }
+
+            if (key === "MAX_LIVES") {
+                if(value < 1) {
+                    socket.emit('hostError', 'Must have at least 1 life in lives mode');
+                    return;
+                }
+            }
+
+            state[roomCode][key] = value
+            io.in(roomCode).emit("returnGameSettings", state[roomCode]);
+
+        } else {
+            socket.emit('hostError', `There is no setting ${key} to update.`)
+        }
     });
 
     // socket.on("getGameSettings", (room) => {
