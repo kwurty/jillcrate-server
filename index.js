@@ -14,7 +14,7 @@ const httpServer = createServer();
 
 const io = require('socket.io')(httpServer, {
     cors: {
-        origin: ['http://localhost:5173', 'http://namegame.kwurty.com', 'https://namegame.kwurty.com', 'https://kwurty.github.io', "https://admin.socket.io", "https://itsthenamegame.herokuapp.com/", "https://kwurty.github.io/jillcrate-client/"]
+        origin: ['http://localhost:5173', 'http://localhost:4001', 'http://namegame.kwurty.com', 'https://namegame.kwurty.com', 'https://kwurty.github.io', "https://admin.socket.io", "https://itsthenamegame.herokuapp.com/", "https://kwurty.github.io/jillcrate-client/"]
     }
 });
 
@@ -28,6 +28,7 @@ const pool = mysql.createPool({
 class Game {
     constructor(roomCode = null) {
         this.ROOM = roomCode;
+        this.HOST = null;
         this.PLAYERS = [];
         this.MAX_PLAYERS = 6;
         this.ANSWER_TIMER = 10;
@@ -94,11 +95,13 @@ class Game {
     }
 
     SEND_CORRECT(firstname, lastname) {
-        io.in(this.ROOM).emit("correctAnswer", this.CURRENT_PLAYER, firstname, lastname);
+        const PlayerId = this.PLAYERS[this.CURRENT_PLAYER].id;
+        io.in(this.ROOM).emit("correctAnswer", PlayerId, firstname, lastname);
     }
 
     SEND_INCORRECT(message = null) {
-        io.in(this.ROOM).emit("incorrectAnswer", this.CURRENT_PLAYER, message);
+        const PlayerId = this.PLAYERS[this.CURRENT_PLAYER].id;
+        io.in(this.ROOM).emit("incorrectAnswer", PlayerId, message);
     }
 
     START_TIMER() {
@@ -142,7 +145,7 @@ class Game {
         // set random first answer
 
         pool.query('SELECT first_name, last_name FROM jillcrate.nndb ORDER BY RAND() LIMIT 1', (err, res) => {
-            if(!res || !res[0] || !res[0].first_name || !res[0].last_name) {
+            if (!res || !res[0] || !res[0].first_name || !res[0].last_name) {
                 io.in(this.ROOM).emit("correctAnswer", 0, "Fred", "Durst");
                 return
             }
@@ -237,6 +240,7 @@ class Game {
     RETURN_GAMESETTINGS() {
         io.in(this.ROOM).emit("returnGameSettings", {
             ROOM: this.ROOM,
+            HOST: this.HOST,
             PLAYERS: this.PLAYERS,
             MAX_PLAYERS: this.MAX_PLAYERS,
             ANSWER_TIMER: this.ANSWER_TIMER,
@@ -265,18 +269,36 @@ io.on("connection", (socket) => {
         try {
             // Check if the room exists
             const r = io.sockets.adapter.rooms;
-            if (!state[room]) return socket.emit("returnFailedRoomJoin", "Room does not exist");
+            if (!state[room]) {
+                socket.emit("returnFailedRoomJoin", "Room does not exist");
+                return;
+            }
 
             // Gather the user count in the room and compare
             let users = Array.from(r.get(room));
             let gameSettings = state[room];
 
+            if (!users || !gameSettings) {
+                socket.emit("returnFailedRoomJoin", "Room does not exist");
+                return;
+            }
+
             if (users.length > 0) {
                 // If full
                 if (users.length >= gameSettings.MAX_PLAYERS) {
                     //  emit room is full message
-                    socket.emit("returnFailedJoinRoom", "Room is full.")
-                } else {
+                    socket.emit("returnFailedRoomJoin", "Room is full.")
+                }
+                else {
+
+                    if (gameSettings && gameSettings.PLAYERS) {
+                        for (let player of gameSettings.PLAYERS) {
+                            if (player.name.toLowerCase() == name.toLowerCase()) {
+                                socket.emit("returnFailedRoomJoin", `Player with name ${name} already exists`);
+                                return;
+                            }
+                        }
+                    }
 
                     // else join the room
                     socket.join(room);
@@ -288,8 +310,7 @@ io.on("connection", (socket) => {
                     gameSettings.PLAYERS.push(
                         {
                             id: socket.id,
-                            name: name,
-                            host: false
+                            name: name
                         }
                     );
                     // update the room settings
@@ -312,11 +333,11 @@ io.on("connection", (socket) => {
         try {
             const roomCode = createRoomCode(5);
             const gameSettings = new Game(roomCode);
+            gameSettings.host = USER;
             gameSettings.PLAYERS.push(
                 {
                     id: USER,
-                    name: username,
-                    host: true
+                    name: username
                 }
             );
             socket.join(roomCode);
@@ -330,20 +351,20 @@ io.on("connection", (socket) => {
     });
 
     socket.on("updateGameSettings", (roomCode, key, value) => {
-        if(state[roomCode] && state[roomCode][key]) {
+        if (state[roomCode] && state[roomCode][key]) {
 
-            if(key === "MAX_PLAYERS"){
-                if(value > 10){
+            if (key === "MAX_PLAYERS") {
+                if (value > 10) {
                     socket.emit('hostError', `Playes are limited to 10.`);
                     return;
-                } else if (value < 2){
+                } else if (value < 2) {
                     socket.emit('hostError', `Must have at least 2 players`);
                     return;
                 }
             }
 
             if (key === "MAX_LIVES") {
-                if(value < 1) {
+                if (value < 1) {
                     socket.emit('hostError', 'Must have at least 1 life in lives mode');
                     return;
                 }
@@ -412,15 +433,47 @@ io.on("connection", (socket) => {
 
         // get the room they are in and remove them from the players group
         let gameSettings = state[ROOM];
+        const player = gameSettings.PLAYERS.find(player => {
+            return player.id === USER;
+        })
         const newUsers = gameSettings.PLAYERS.filter(player => {
             return player.id !== USER;
         })
+
+        if (player.host === true) {
+            console.log("is host -- asign new")
+            // Player is host - assign new host
+            if (newUsers.length > 0) {
+                if (!newUsers[0]) return;
+                newUsers[0].host = true;
+                io.in(ROOM).emit("hostChange", newUsers[0].id)
+            }
+        }
+
         gameSettings.PLAYERS = newUsers;
         state[ROOM] = gameSettings;
 
+
         // emit to users in the room the updated players list
-        // io.in(ROOM).emit("returnGameSettings", state[ROOM]);
+        io.in(ROOM).emit("returnGameSettings", state[ROOM]);
     });
+
+    socket.on("debug_right_answer", (roomCode) => {
+        if (!roomCode) return;
+        if (state[roomCode].PLAYERS[state[roomCode].CURRENT_PLAYER].id !== socket.id) return;
+        // state[roomCode]['PREVIOUS_ANSWERS'].push(firstname + lastname);
+        // state[roomCode]['LAST_ANSWER_LASTNAME_LETTER'] = lastname[0];
+        // state[roomCode]['LAST_ANSWER'] = `${firstname} ${lastname}`;
+        state[roomCode]['RESET_TIMER']();
+        state[roomCode]['SEND_CORRECT']("example", "answer");
+        state[roomCode]['SET_CURRENT_PLAYER']();
+    })
+    socket.on("debug_wrong_answer", (roomCode) => {
+        if (!state[roomCode]) return;
+        if (state[roomCode].PLAYERS[state[roomCode].CURRENT_PLAYER].id !== socket.id) return;
+
+        return state[roomCode]['SEND_INCORRECT']();
+    })
 })
 
 
