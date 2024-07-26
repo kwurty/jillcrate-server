@@ -333,7 +333,7 @@ io.on("connection", (socket) => {
         try {
             const roomCode = createRoomCode(5);
             const gameSettings = new Game(roomCode);
-            gameSettings.host = USER;
+            gameSettings.HOST = USER;
             gameSettings.PLAYERS.push(
                 {
                     id: USER,
