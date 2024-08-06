@@ -48,6 +48,7 @@ class Game {
         this.TIME_LEFT = null;
         this.TIMER = null;
         this.WINNER = null;
+        this.PENDING_PLAYERS = [];
     }
 
     START_COUNTDOWN() {
@@ -212,6 +213,14 @@ class Game {
         this.STATUS = 3;
         io.in(this.ROOM).emit("gameover", winner);
         this.STOP_TIMER();
+
+        // add queued playings into player list
+        if (this.PENDING_PLAYERS.length > 0) {
+            while (this.PENDING_PLAYERS.length > 0) {
+                let player = this.PENDING_PLAYERS.pop();
+                this.PLAYERS.push(player);
+            }
+        }
     }
 
     CHECK_FOR_WINNER(players) {
@@ -307,24 +316,36 @@ io.on("connection", (socket) => {
                     ROOM = room;
 
                     // add user to PLAYERS list
-                    gameSettings.PLAYERS.push(
-                        {
-                            id: socket.id,
-                            name: name
-                        }
-                    );
-                    // update the room settings
-                    state[room] = gameSettings;
+                    if (gameSettings && (gameSettings.STATUS == 2 || gameSettings.STATUS == 1)) {
+                        console.log("Game in progress")
+                        state[room].PENDING_PLAYERS.push(
+                            {
+                                id: socket.id,
+                                name: name
+                            }
+                        );
+                        socket.emit("returnJoinedRoom", room, name);
+                    } else {
+                        gameSettings.PLAYERS.push(
+                            {
+                                id: socket.id,
+                                name: name
+                            }
+                        );
+                        // update the room settings
+                        state[room] = gameSettings;
 
-                    // tell users in the room of new player
-                    socket.emit("returnJoinedRoom", room, name);
-                    io.in(room).emit("returnGameSettings", gameSettings);
+                        // tell users in the room of new player
+                        socket.emit("returnJoinedRoom", room, name);
+                        io.in(room).emit("returnGameSettings", gameSettings);
+                    }
                 }
             }
 
 
         }
         catch (e) {
+            console.log(e)
             console.log(`[${socket.id}] - failed to join room ${room}`);
         }
     });
@@ -440,13 +461,12 @@ io.on("connection", (socket) => {
             return player.id !== USER;
         })
 
-        if (player.host === true) {
+        if (gameSettings.HOST === USER) {
             console.log("is host -- asign new")
             // Player is host - assign new host
             if (newUsers.length > 0) {
                 if (!newUsers[0]) return;
-                newUsers[0].host = true;
-                io.in(ROOM).emit("hostChange", newUsers[0].id)
+                gameSettings.HOST = newUsers[0].id;
             }
         }
 
