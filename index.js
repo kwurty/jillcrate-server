@@ -22,7 +22,7 @@ const pool = mysql.createPool({
     host: process.env.DB_HOST,
     user: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
-    database: 'jillcrate'
+    database: process.env.DB_DB
 });
 
 class Game {
@@ -49,6 +49,15 @@ class Game {
         this.TIMER = null;
         this.WINNER = null;
         this.PENDING_PLAYERS = [];
+    }
+
+    VERIFY_HOST_USER(user_socket) {
+        // Check if the user is the host
+        if (this.HOST === user_socket.id) {
+            return true;
+        }
+
+        return false;
     }
 
     START_COUNTDOWN() {
@@ -145,11 +154,12 @@ class Game {
 
         // set random first answer
 
-        pool.query('SELECT first_name, last_name FROM jillcrate.nndb ORDER BY RAND() LIMIT 1', (err, res) => {
+        pool.query(`SELECT first_name, last_name FROM ${process.env.DB_DB}.${process.env.DB_TABLE} ORDER BY RAND() LIMIT 1`, (err, res) => {
             if (!res || !res[0] || !res[0].first_name || !res[0].last_name) {
                 io.in(this.ROOM).emit("correctAnswer", 0, "Fred", "Durst");
                 return
             }
+            console.log(res);
             this.LAST_ANSWER = `${res[0].first_name} ${res[0].last_name}`
             this.LAST_ANSWER_LASTNAME_LETTER = res[0].last_name[0];
             this.PREVIOUS_ANSWERS.push(`${res[0].first_name}${res[0].last_name}`);
@@ -211,6 +221,7 @@ class Game {
 
     GAMEOVER(winner) {
         this.STATUS = 3;
+        this.WINNER = winner.name;
         io.in(this.ROOM).emit("gameover", winner);
         this.STOP_TIMER();
 
@@ -391,6 +402,16 @@ io.on("connection", (socket) => {
                 }
             }
 
+            if (key === "ANSWER_TIMER") {
+                if (value < 5) {
+                    socket.emit('hostError', 'Timer cannot be less than 5 seconds');
+                    return;
+                } else if (value > 60) {
+                    socket.emit('hostError', 'Timer cannot be more than 60 seconds');
+                    return;
+                }
+            }
+
             state[roomCode][key] = value
             io.in(roomCode).emit("returnGameSettings", state[roomCode]);
 
@@ -430,7 +451,7 @@ io.on("connection", (socket) => {
         }
 
         // check to make sure it's actually a famous person then make adjustments
-        pool.query(`SELECT * FROM jillcrate.nndb WHERE first_name="${firstname}" and last_name="${lastname}"`, (err, results, fields) => {
+        pool.query(`SELECT * FROM ${process.env.DB_DB}.${process.env.DB_TABLE} WHERE first_name="${firstname}" and last_name="${lastname}"`, (err, results, fields) => {
             if (results.length < 1) {
                 return state[roomCode]['SEND_INCORRECT']();
             }
@@ -450,6 +471,7 @@ io.on("connection", (socket) => {
     })
 
     socket.on("disconnect", () => {
+        console.log(`User ${socket.id} disconnected`);
         if (!ROOM) return
 
         // get the room they are in and remove them from the players group
@@ -494,11 +516,31 @@ io.on("connection", (socket) => {
 
         return state[roomCode]['SEND_INCORRECT']();
     })
+    socket.on("removePlayer", (roomCode, playerId) => {
+        console.log('room code - ', roomCode, ' playerid - ', playerId);
+        if (!state[roomCode]) return;
+        if (!state[roomCode].VERIFY_HOST_USER(socket)) {
+            socket.emit("hostError", "You are not the host of this room.");
+            return;
+        }
+        // remove player from the game
+        const player_socket = io.sockets.sockets.get(playerId);
+        if (!player_socket) {
+            socket.emit("hostError", "Player not found.");
+            return;
+        }
+        if (player_socket.rooms.has(roomCode)) {
+            player_socket.leave(roomCode);
+            player_socket.emit('disconnected', `You have been removed from the game ${roomCode}`);
+        }
+
+    })
 })
 
 
 instrument(io, { auth: false });
 
 httpServer.listen(process.env.PORT || 3000);
+
 
 console.log(`Listening on ${process.env.PORT}`);
